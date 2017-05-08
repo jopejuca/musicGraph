@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<style>
+	
+body{
+	margin: 0;
+	padding: 0;
+	background-color: black;
+	overflow: hidden;
+}
+
+.link {
+  stroke: #ccc;
+}
+
+.node text {
+  pointer-events: none;
+  font: 10px sans-serif;
+}
+
+#graph{
+	position: absolute;
+	top: 0;
+	width: 100%;
+	height: 95%;
+}
+
+#search{
+	text-align: center;
+	font-family: sans-serif;
+	font-weight: lighter;
+	color: white;
+	position: absolute;
+	height: 20%;
+	top: 40%;
+	width: 100%;
+	background-color: white;
+	background-color: rgba(255, 255, 255, 0.15);
+}
+
+.form-control{
+	height: 90px;
+	width: 90%;
+	font-size: 80px;
+	text-align: center;
+	color: white;
+	text-transform: uppercase;
+	background-color: transparent;
+	border: transparent;
+	outline: none;
+}
+	
+#enter{
+	opacity: 0;
+}
+
+#loading{
+	position: absolute;
+	left: 40%;
+	top: 40%;
+	width: 50px;
+	height: 50px;
+	opacity: 0;
+}
+
+</style>
+<body>
+	
+	<div id="graph">
+    </div>
+	<div id="search">
+		<form id="search-form">
+        	<input type="text" id="query" value="" class="form-control" placeholder="DIGITE O NOME DE UM ARTISTA"/><br><br>
+        	<span id="enter">APERTE ENTER PARA PESQUISAR</span>
+    	</form>
+	</div>
+	<img src="loading.gif" id="loading">
+	
+<script src="d3.min.js"></script>
+<script src="jquery.js"></script>
+<script>
+	
+	$("#loading").css("left",($("body").width()/2 - 25)+"px");
+	
+	
+	$("#search-form").keydown(function(e){
+		if(e.which!=8 || $("#query").val().length>1){
+			$("#enter").animate({opacity:1},800);
+		}else{
+			$("#enter").animate({opacity:0},800);
+		}
+	});
+
+document.getElementById('search-form').addEventListener('submit', function (e) {
+	e.preventDefault();
+	searchArtist(document.getElementById('query').value);
+}, false);
+
+
+function searchArtist(artist){
+	
+	$("#loading").css("opacity",1);
+	
+	$("#query").animate({
+		height:"30px",
+		"font-size":"30px"
+	},700);
+	$("#search").animate({
+		height:"5%",
+		top:"96%"
+	},700);
+	
+	$("svg").html("");
+	
+    json = {
+        "nodes":[],
+        "links":[]
+    };
+	
+	$.ajax({
+        url: 'https://api.spotify.com/v1/search',
+        data: {
+            q: artist,
+            type: 'artist',
+            limit: 1
+        },
+        success: function (response) {
+            main = response.artists.items[0];
+            id = main.id;
+            found = [id];
+            addtojson(main,0,null,found,json);
+            $.ajax({
+				url: 'https://api.spotify.com/v1/artists/'+id+"/related-artists",
+				success: function (response) {   
+					firstlevel = response.artists;
+					counter = 0;
+					
+					var callback = function(parent){
+						return function(response){
+							secondlevel = response.artists;
+								for(j=0;j<secondlevel.length;j++){
+									a = secondlevel[j];
+									if(found.indexOf(a.id)==-1){
+										found.push(a.id);
+										addtojson(a,counter+2,parent,found,json);
+									}
+								}
+								if(++counter==firstlevel.length){
+									showgraph(json);
+								}
+						}
+					}
+					
+					for(i=0;i<firstlevel.length;i++){
+						aid = firstlevel[i].id;
+						found.push(aid);
+						addtojson(firstlevel[i],1,0,found,json);
+						
+						$.ajax({
+							url: 'https://api.spotify.com/v1/artists/'+aid+"/related-artists",
+							success: callback(i+1)
+						});
+						
+					}
+        		}
+    		});
+        }
+    });
+}
+
+function addtojson(artist,group,parent,found){
+	node = {
+		"name":artist.name,
+		"group":group
+	};
+	
+	if(parent!=null){
+		val = parent==0?4:1;
+		source = 0;
+		for(;source<found.length;source++){
+			if(found[source] == artist.id){
+				break;
+			}
+		}
+		link = {
+			"source":source,
+			"target":parent,
+			"value":val
+		};
+		json.links.push(link);
+	}
+	json.nodes.push(node);
+}
+
+
+var w = window,
+    d = document,
+    e = d.documentElement,
+    g = d.getElementsByTagName('body')[0],
+    width = (w.innerWidth || e.clientWidth || g.clientWidth)-10,
+    height = (w.innerHeight|| e.clientHeight|| g.clientHeight)-10;
+    
+var color = d3.scale.category20();
+
+var svg = d3.select("#graph").append("svg")
+    .attr("width", width)
+    .attr("height", height);
+
+var force = d3.layout.force()
+    .linkStrength(0.25)
+    .friction(0.9)
+    .linkDistance(40)
+    .charge(-160)
+    .gravity(0.12)
+    .theta(0.9)
+    .size([width, height]);
+    
+function showgraph(json){
+	
+	
+	$("#loading").css("opacity",0);
+  
+	    force
+      .nodes(json.nodes)
+      .links(json.links)
+      .start();
+
+  var link = svg.selectAll(".link")
+      .data(json.links)
+    .enter().append("line")
+      .attr("class", "link");
+
+  var node = svg.selectAll(".node")
+      .data(json.nodes)
+	  .enter().append("g")
+      .attr("class", "node")
+      .call(force.drag);
+
+  node.append("circle")
+      .attr("class", "node")
+      .attr("r", function(d){
+	      if(d.group == 0){return 14;}
+	      else if(d.group == 1){return 11;}
+	      else{return 8;}
+	     })
+      .style("fill", function(d) { 
+	      var gr = d.group == 2 ? 8 : d.group;
+	      return color(gr); 
+	     });
+
+  node.append("text")
+      .attr("dx", 0)
+      .attr("dy", function(d){
+	      if(d.group == 0){return 22;}
+	      else if(d.group == 1){return 19;}
+	      else{return 16;}
+	     })
+	  .style("text-anchor", "middle")
+	  .style("fill","white")
+      .text(function(d) { return d.name });
+
+  force.on("tick", function() {
+    link.attr("x1", function(d) { return d.source.x; })
+        .attr("y1", function(d) { return d.source.y; })
+        .attr("x2", function(d) { return d.target.x; })
+        .attr("y2", function(d) { return d.target.y; });
+
+    node.attr("transform", function(d) { return "translate(" + d.x + "," + d.y + ")"; });
+	
+  });
+    
+   $("g.node").on("dblclick",function() {
+		var name = $( this ).find("text").first().html();
+		$("#query").val(name);
+		searchArtist(name);
+	});
+}
+
+</script>
+</body>
+</html>
